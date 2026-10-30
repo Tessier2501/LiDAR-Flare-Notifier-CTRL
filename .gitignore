@@ -1,0 +1,13 @@
+build/
+build-*/
+.cache/
+compile_commands.json
+CMakeUserPresets.json
+*.elf
+*.bin
+*.hex
+*.map
+*.su
+*.o
+*.d
+*.a
