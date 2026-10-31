@@ -2,6 +2,8 @@ add_library(App STATIC)
 
 target_sources(App PRIVATE
     app.c
+    sensor/ptgl_cmd.c
+    sensor/ptgl_parser.c
     storage/param_store.c
     usb/usb_app.c
 )
