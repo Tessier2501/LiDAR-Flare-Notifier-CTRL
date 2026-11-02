@@ -8,16 +8,18 @@ static void shift_one(ptgl_parser_t *parser)
   memmove(parser->buf, parser->buf + 1U, parser->count);
 }
 
-static void enqueue(ptgl_parser_t *parser, const ptgl_frame_t *frame)
+static void enqueue(ptgl_parser_t *parser, const ptgl_frame_t *frame,
+                    uint32_t rx_tick_ms)
 {
-  uint8_t next = (uint8_t)((parser->head + 1U) % PTGL_PARSER_QUEUE_LEN);
+  uint16_t next = (uint16_t)((parser->head + 1U) % PTGL_PARSER_QUEUE_LEN);
 
   if (next == parser->tail) {
+    parser->tail = (uint16_t)((parser->tail + 1U) % PTGL_PARSER_QUEUE_LEN);
     parser->overflow++;
-    return;
   }
 
-  parser->frames[parser->head] = *frame;
+  parser->records[parser->head].frame = *frame;
+  parser->records[parser->head].rx_tick_ms = rx_tick_ms;
   parser->head = next;
 }
 
@@ -34,7 +36,7 @@ static void decode_frame(const uint8_t raw[PTGL_FRAME_LEN], ptgl_frame_t *frame)
   }
 }
 
-static void consume(ptgl_parser_t *parser)
+static void consume(ptgl_parser_t *parser, uint32_t rx_tick_ms)
 {
   for (;;) {
     if (parser->count == 0U) {
@@ -69,7 +71,7 @@ static void consume(ptgl_parser_t *parser)
 
     decode_frame(parser->buf, &frame);
     parser->frames_ok++;
-    enqueue(parser, &frame);
+    enqueue(parser, &frame, rx_tick_ms);
     parser->count = 0U;
     return;
   }
@@ -80,7 +82,8 @@ void ptgl_parser_init(ptgl_parser_t *parser)
   memset(parser, 0, sizeof(*parser));
 }
 
-void ptgl_parser_feed(ptgl_parser_t *parser, const uint8_t *data, size_t len)
+void ptgl_parser_feed(ptgl_parser_t *parser, const uint8_t *data, size_t len,
+                      uint32_t rx_tick_ms)
 {
   for (size_t i = 0U; i < len; i++) {
     if (parser->count == PTGL_FRAME_LEN) {
@@ -88,17 +91,21 @@ void ptgl_parser_feed(ptgl_parser_t *parser, const uint8_t *data, size_t len)
     }
     parser->buf[parser->count] = data[i];
     parser->count++;
-    consume(parser);
+    consume(parser, rx_tick_ms);
   }
 }
 
-bool ptgl_parser_pop(ptgl_parser_t *parser, ptgl_frame_t *frame)
+bool ptgl_parser_pop(ptgl_parser_t *parser, ptgl_frame_t *frame,
+                     uint32_t *rx_tick_ms)
 {
   if (parser->tail == parser->head) {
     return false;
   }
 
-  *frame = parser->frames[parser->tail];
-  parser->tail = (uint8_t)((parser->tail + 1U) % PTGL_PARSER_QUEUE_LEN);
+  *frame = parser->records[parser->tail].frame;
+  if (rx_tick_ms != NULL) {
+    *rx_tick_ms = parser->records[parser->tail].rx_tick_ms;
+  }
+  parser->tail = (uint16_t)((parser->tail + 1U) % PTGL_PARSER_QUEUE_LEN);
   return true;
 }

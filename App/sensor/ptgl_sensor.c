@@ -1,6 +1,7 @@
 #include "ptgl_sensor.h"
 
 #include "ptgl_cmd.h"
+#include "port/port_critical.h"
 #include "port/port_sensor.h"
 #include "port/port_time.h"
 
@@ -8,7 +9,7 @@ static ptgl_parser_t parser;
 
 static void on_rx(const uint8_t *data, size_t len)
 {
-  ptgl_parser_feed(&parser, data, len);
+  ptgl_parser_feed(&parser, data, len, port_time_ms());
 }
 
 bool ptgl_sensor_init(void)
@@ -19,15 +20,11 @@ bool ptgl_sensor_init(void)
 
 bool ptgl_sensor_pop(ptgl_frame_t *frame, uint32_t *t_ms)
 {
-  if (!ptgl_parser_pop(&parser, frame)) {
-    return false;
-  }
+  uint32_t state = port_critical_enter();
+  bool popped = ptgl_parser_pop(&parser, frame, t_ms);
 
-  if (t_ms != NULL) {
-    *t_ms = port_time_ms();
-  }
-
-  return true;
+  port_critical_exit(state);
+  return popped;
 }
 
 bool ptgl_sensor_send_cmd(uint8_t func)

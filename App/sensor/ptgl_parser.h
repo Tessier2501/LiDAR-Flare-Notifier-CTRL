@@ -6,22 +6,29 @@
 
 #include "ptgl_proto.h"
 
-#define PTGL_PARSER_QUEUE_LEN 8U
+#define PTGL_PARSER_QUEUE_LEN 64U
 
 typedef struct {
-  ptgl_frame_t frames[PTGL_PARSER_QUEUE_LEN];
-  uint16_t     frames_ok;
-  uint16_t     crc_err;
-  uint16_t     func_err;
-  uint16_t     overflow;
+  ptgl_frame_t frame;
+  uint32_t rx_tick_ms;
+} ptgl_frame_record_t;
+
+typedef struct {
+  ptgl_frame_record_t records[PTGL_PARSER_QUEUE_LEN];
+  uint32_t     frames_ok;
+  uint32_t     crc_err;
+  uint32_t     func_err;
+  uint32_t     overflow;
   uint8_t      buf[PTGL_FRAME_LEN];
   uint8_t      count;
-  uint8_t      head;
-  uint8_t      tail;
+  uint16_t     head;
+  uint16_t     tail;
 } ptgl_parser_t;
 
 void ptgl_parser_init(ptgl_parser_t *parser);
-void ptgl_parser_feed(ptgl_parser_t *parser, const uint8_t *data, size_t len);
-bool ptgl_parser_pop(ptgl_parser_t *parser, ptgl_frame_t *frame);
+void ptgl_parser_feed(ptgl_parser_t *parser, const uint8_t *data, size_t len,
+                      uint32_t rx_tick_ms);
+bool ptgl_parser_pop(ptgl_parser_t *parser, ptgl_frame_t *frame,
+                     uint32_t *rx_tick_ms);
 
 #endif

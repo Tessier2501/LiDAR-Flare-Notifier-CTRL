@@ -7,6 +7,7 @@
 #include "ptgl_parser.h"
 
 bool ptgl_sensor_init(void);
+/* t_ms is the tick at which the frame completed reception. */
 bool ptgl_sensor_pop(ptgl_frame_t *frame, uint32_t *t_ms);
 bool ptgl_sensor_send_cmd(uint8_t func);
 const ptgl_parser_t *ptgl_sensor_parser(void);
