@@ -1,0 +1,7 @@
+#ifndef PTGL_SENSOR_CONFIG_H
+#define PTGL_SENSOR_CONFIG_H
+
+#define PTGL_SENSOR_EN_WAKE_DELAY_MS 500U
+#define PTGL_SENSOR_RETRY_MS         1000U
+
+#endif
