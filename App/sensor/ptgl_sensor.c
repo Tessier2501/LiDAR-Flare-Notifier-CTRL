@@ -10,6 +10,8 @@ static ptgl_parser_t parser;
 static ptgl_sensor_state_t session_state;
 static uint32_t state_tick_ms;
 static uint32_t response_baseline;
+static uint32_t frames_seen;
+static uint32_t last_frame_tick_ms;
 static bool uart_ready;
 
 static void on_rx(const uint8_t *data, size_t len)
@@ -41,6 +43,8 @@ bool ptgl_sensor_init(void)
   session_state = PTGL_SENSOR_STATE_FAULT;
   state_tick_ms = port_time_ms();
   response_baseline = 0U;
+  frames_seen = 0U;
+  last_frame_tick_ms = state_tick_ms;
   uart_ready = false;
 
   if (!port_sensor_start(on_rx)) {
@@ -51,6 +55,7 @@ bool ptgl_sensor_init(void)
   port_sensor_enable(true);
   now_ms = port_time_ms();
   state_tick_ms = now_ms;
+  last_frame_tick_ms = now_ms;
   session_state = PTGL_SENSOR_STATE_WAITING;
   return true;
 }
@@ -58,9 +63,16 @@ bool ptgl_sensor_init(void)
 void ptgl_sensor_poll(uint32_t now_ms)
 {
   uint32_t elapsed_ms;
+  uint32_t frames;
 
   if (!uart_ready) {
     return;
+  }
+
+  frames = parser_frames_ok();
+  if (frames != frames_seen) {
+    frames_seen = frames;
+    last_frame_tick_ms = now_ms;
   }
 
   elapsed_ms = now_ms - state_tick_ms;
@@ -73,7 +85,7 @@ void ptgl_sensor_poll(uint32_t now_ms)
       break;
 
     case PTGL_SENSOR_STATE_ACQUIRING:
-      if (parser_frames_ok() != response_baseline) {
+      if (frames_seen != response_baseline) {
         session_state = PTGL_SENSOR_STATE_RUNNING;
       } else if (elapsed_ms >= PTGL_SENSOR_RETRY_MS) {
         send_stream_command(now_ms);
@@ -81,6 +93,10 @@ void ptgl_sensor_poll(uint32_t now_ms)
       break;
 
     case PTGL_SENSOR_STATE_RUNNING:
+      if ((now_ms - last_frame_tick_ms) >= PTGL_SENSOR_LINK_TIMEOUT_MS) {
+        send_stream_command(now_ms);
+        session_state = PTGL_SENSOR_STATE_ACQUIRING;
+      }
       break;
 
     case PTGL_SENSOR_STATE_FAULT:

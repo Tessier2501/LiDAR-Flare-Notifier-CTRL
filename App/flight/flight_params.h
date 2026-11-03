@@ -16,6 +16,7 @@ typedef struct {
   uint32_t reference_descent_rate_mm_s;
 } flight_params_t;
 
+const flight_params_t *flight_params_factory(void);
 void flight_params_default(flight_params_t *params);
 bool flight_params_valid(const flight_params_t *params);
 

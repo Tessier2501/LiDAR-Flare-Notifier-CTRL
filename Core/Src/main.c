@@ -106,6 +106,7 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
     app_poll();
+    HAL_IWDG_Refresh(&hiwdg);
   }
   /* USER CODE END 3 */
 }

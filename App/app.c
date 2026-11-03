@@ -14,12 +14,12 @@ void app_init(void)
   flight_params_t params;
   uint32_t now_ms;
 
-  param_store_init();
+  param_store_init(NULL);
   usb_app_init();
   (void)ptgl_sensor_init();
 
   now_ms = port_time_ms();
-  flight_params_default(&params);
+  (void)param_store_load(&params);
   (void)flight_core_init(&flight_core, &params, now_ms);
   flight_core_tick(&flight_core, now_ms, &flight_output);
 }
