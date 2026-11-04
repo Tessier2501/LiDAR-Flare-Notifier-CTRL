@@ -30,12 +30,23 @@ typedef struct {
   uint32_t rate_anchor_height_mm;
   uint32_t height_mm;
   int32_t descent_rate_mm_s;
+  uint32_t arm_window_start_ms;
+  uint32_t arm_total_frames;
+  uint32_t arm_valid_frames;
+  uint64_t arm_height_sum_mm;
+  uint32_t arm_height_count;
+  uint32_t out_of_range_start_ms;
+  uint32_t out_of_range_last_tick_ms;
   bool have_frame;
   bool last_measurement_valid;
   bool have_rate_anchor;
   bool rate_valid;
   bool alert1_active;
   bool alert2_active;
+  bool sensor_running;
+  bool arm_window_active;
+  bool armed;
+  bool out_of_range_active;
 } flight_core_t;
 
 typedef struct {
@@ -47,12 +58,14 @@ typedef struct {
   int32_t descent_rate_mm_s;
   bool height_valid;
   bool rate_valid;
+  bool armed;
 } flight_output_t;
 
 bool flight_core_init(flight_core_t *core, const flight_params_t *params, uint32_t now_ms);
 bool flight_core_set_params(flight_core_t *core, const flight_params_t *params);
+void flight_core_set_sensor_running(flight_core_t *core, bool running, uint32_t now_ms);
 void flight_core_tick(flight_core_t *core, uint32_t now_ms, flight_output_t *output);
 void flight_core_process(flight_core_t *core, uint32_t now_ms, uint32_t range_mm,
-                         bool measurement_valid, flight_output_t *output);
+                         bool has_distance, bool out_of_range, flight_output_t *output);
 
 #endif

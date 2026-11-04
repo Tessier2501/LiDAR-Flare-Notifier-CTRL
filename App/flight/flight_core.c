@@ -54,6 +54,65 @@ static void update_rate(flight_core_t *core, uint32_t now_ms, uint32_t height_mm
   core->rate_anchor_height_mm = height_mm;
 }
 
+static void reset_arm_window(flight_core_t *core)
+{
+  core->arm_window_active = false;
+  core->arm_window_start_ms = 0U;
+  core->arm_total_frames = 0U;
+  core->arm_valid_frames = 0U;
+  core->arm_height_sum_mm = 0U;
+  core->arm_height_count = 0U;
+}
+
+static void reset_out_of_range(flight_core_t *core)
+{
+  core->out_of_range_active = false;
+  core->out_of_range_start_ms = 0U;
+  core->out_of_range_last_tick_ms = 0U;
+}
+
+static void update_arming(flight_core_t *core, uint32_t now_ms)
+{
+  uint32_t elapsed_ms;
+
+  if (core->armed) {
+    return;
+  }
+
+  if (!core->sensor_running) {
+    reset_arm_window(core);
+    return;
+  }
+
+  if (!core->arm_window_active) {
+    core->arm_window_active = true;
+    core->arm_window_start_ms = now_ms;
+    return;
+  }
+
+  elapsed_ms = now_ms - core->arm_window_start_ms;
+  if (elapsed_ms < FLIGHT_ARM_WINDOW_MS) {
+    return;
+  }
+
+  if (core->arm_total_frames >= FLIGHT_ARM_MIN_FRAMES &&
+      (uint64_t)core->arm_valid_frames * 100U >=
+          (uint64_t)core->arm_total_frames * FLIGHT_ARM_VALID_RATIO_PERCENT &&
+      (now_ms - core->last_valid_tick_ms) <= FLIGHT_ARM_FRESH_MS &&
+      core->arm_height_count > 0U &&
+      core->arm_height_sum_mm >=
+          (uint64_t)FLIGHT_ARM_MIN_HEIGHT_MM * core->arm_height_count) {
+    core->armed = true;
+    reset_arm_window(core);
+    reset_out_of_range(core);
+    return;
+  }
+
+  reset_arm_window(core);
+  core->arm_window_active = true;
+  core->arm_window_start_ms = now_ms;
+}
+
 static flight_alert_t evaluate_alert(flight_core_t *core)
 {
   uint32_t trigger1_mm = adjusted_trigger_height_mm(
@@ -100,6 +159,7 @@ static void fill_output(const flight_core_t *core, flight_state_t state,
   output->descent_rate_mm_s = core->descent_rate_mm_s;
   output->height_valid = data_valid;
   output->rate_valid = data_valid && core->rate_valid;
+  output->armed = core->armed;
   output->alert1_trigger_height_mm = 0U;
   output->alert2_trigger_height_mm = 0U;
 
@@ -143,6 +203,29 @@ bool flight_core_set_params(flight_core_t *core, const flight_params_t *params)
   return true;
 }
 
+void flight_core_set_sensor_running(flight_core_t *core, bool running, uint32_t now_ms)
+{
+  if (core == NULL) {
+    return;
+  }
+
+  core->sensor_running = running;
+  if (core->armed) {
+    return;
+  }
+
+  if (!running) {
+    reset_arm_window(core);
+    reset_out_of_range(core);
+    return;
+  }
+
+  if (!core->arm_window_active) {
+    core->arm_window_active = true;
+    core->arm_window_start_ms = now_ms;
+  }
+}
+
 void flight_core_tick(flight_core_t *core, uint32_t now_ms, flight_output_t *output)
 {
   uint32_t link_elapsed_ms;
@@ -155,6 +238,8 @@ void flight_core_tick(flight_core_t *core, uint32_t now_ms, flight_output_t *out
   if (core == NULL || output == NULL) {
     return;
   }
+
+  update_arming(core, now_ms);
 
   link_elapsed_ms = now_ms - core->last_frame_tick_ms;
   invalid_elapsed_ms = now_ms - core->last_valid_tick_ms;
@@ -174,27 +259,74 @@ void flight_core_tick(flight_core_t *core, uint32_t now_ms, flight_output_t *out
     state = FLIGHT_STATE_WARMUP;
   } else {
     state = FLIGHT_STATE_TRACKING;
-    alert = evaluate_alert(core);
+    if (core->armed) {
+      alert = evaluate_alert(core);
+    }
   }
 
   fill_output(core, state, alert, output);
 }
 
 void flight_core_process(flight_core_t *core, uint32_t now_ms, uint32_t range_mm,
-                         bool measurement_valid, flight_output_t *output)
+                         bool has_distance, bool out_of_range, flight_output_t *output)
 {
+  bool measurement_valid;
+  uint32_t height_mm = 0U;
+
   if (core == NULL || output == NULL) {
     return;
   }
+
+  measurement_valid = !out_of_range && has_distance &&
+                      range_mm >= FLIGHT_DISTANCE_MIN_MM &&
+                      range_mm <= FLIGHT_DISTANCE_MAX_MM;
 
   core->have_frame = true;
   core->last_frame_tick_ms = now_ms;
   core->last_measurement_valid = measurement_valid;
 
+  if (!core->armed && core->sensor_running && core->arm_window_active) {
+    core->arm_total_frames++;
+    if (measurement_valid) {
+      height_mm = flight_range_to_height_mm(range_mm);
+      core->arm_valid_frames++;
+      core->arm_height_sum_mm += height_mm;
+      core->arm_height_count++;
+    }
+  }
+
   if (measurement_valid) {
-    core->height_mm = flight_range_to_height_mm(range_mm);
+    if (height_mm == 0U) {
+      height_mm = flight_range_to_height_mm(range_mm);
+    }
+    core->height_mm = height_mm;
     core->last_valid_tick_ms = now_ms;
     update_rate(core, now_ms, core->height_mm);
+  }
+
+  if (!out_of_range) {
+    reset_out_of_range(core);
+  } else if (core->armed) {
+    uint32_t gap_ms;
+
+    if (!core->out_of_range_active) {
+      core->out_of_range_active = true;
+      core->out_of_range_start_ms = now_ms;
+    } else {
+      gap_ms = now_ms - core->out_of_range_last_tick_ms;
+      if (gap_ms > FLIGHT_LINK_TIMEOUT_MS) {
+        core->out_of_range_start_ms = now_ms;
+      }
+    }
+
+    core->out_of_range_last_tick_ms = now_ms;
+    if ((now_ms - core->out_of_range_start_ms) >= FLIGHT_OUT_OF_RANGE_TIMEOUT_MS) {
+      core->armed = false;
+      core->alert1_active = false;
+      core->alert2_active = false;
+      reset_arm_window(core);
+      reset_out_of_range(core);
+    }
   }
 
   flight_core_tick(core, now_ms, output);

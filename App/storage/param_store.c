@@ -13,8 +13,12 @@
 #define PARAM_STORE_PAYLOAD_SIZE     28U
 #define PARAM_STORE_CRC_OFFSET       40U
 
-_Static_assert(PARAM_STORE_CRC_OFFSET + 4U == PARAM_STORE_RECORD_SIZE,
-               "parameter record size mismatch");
+_Static_assert(PARAM_STORE_PAYLOAD_OFFSET + PARAM_STORE_PAYLOAD_SIZE == PARAM_STORE_CRC_OFFSET,
+               "parameter payload layout mismatch");
+_Static_assert(PARAM_STORE_RECORD_SIZE - PARAM_STORE_CRC_OFFSET == 8U,
+               "parameter CRC and programming unit mismatch");
+_Static_assert(PARAM_STORE_RECORD_SIZE % PARAM_FLASH_PROGRAM_UNIT == 0U,
+               "parameter record must align with the programming unit");
 
 static const uint8_t record_magic[4] = {'L', 'F', 'P', 'R'};
 static const param_flash_ops_t *flash_ops;
@@ -248,11 +252,7 @@ param_save_result_t param_store_save(const flight_params_t *params)
   if (!flash_ops->erase(target_slot)) {
     return PARAM_SAVE_ERASE_FAILED;
   }
-  if (!flash_ops->write(target_slot, 0U, raw, PARAM_STORE_CRC_OFFSET)) {
-    return PARAM_SAVE_WRITE_FAILED;
-  }
-  if (!flash_ops->write(target_slot, PARAM_STORE_CRC_OFFSET,
-                        raw + PARAM_STORE_CRC_OFFSET, 4U)) {
+  if (!flash_ops->write(target_slot, 0U, raw, sizeof(raw))) {
     return PARAM_SAVE_WRITE_FAILED;
   }
   if (!flash_ops->read(target_slot, 0U, verify, sizeof(verify))) {

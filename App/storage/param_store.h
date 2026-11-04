@@ -4,7 +4,7 @@
 #include "flight/flight_params.h"
 #include "storage/param_flash.h"
 
-#define PARAM_STORE_RECORD_SIZE 44U
+#define PARAM_STORE_RECORD_SIZE 48U
 
 typedef enum {
   PARAM_LOAD_LATEST = 0,
