@@ -4,23 +4,24 @@
 
 static void shift_one(ptgl_parser_t *parser)
 {
-  parser->count--;
-  memmove(parser->buf, parser->buf + 1U, parser->count);
+  parser->fill--;
+  memmove(parser->buf, parser->buf + 1U, parser->fill);
 }
 
 static void enqueue(ptgl_parser_t *parser, const ptgl_frame_t *frame,
                     uint32_t rx_tick_ms)
 {
-  uint16_t next = (uint16_t)((parser->head + 1U) % PTGL_PARSER_QUEUE_LEN);
-
-  if (next == parser->tail) {
-    parser->tail = (uint16_t)((parser->tail + 1U) % PTGL_PARSER_QUEUE_LEN);
+  if (parser->used == PTGL_PARSER_QUEUE_CAPACITY) {
+    parser->tail = (uint16_t)((parser->tail + 1U) % PTGL_PARSER_QUEUE_CAPACITY);
     parser->overflow++;
+  } else {
+    parser->used++;
   }
 
   parser->records[parser->head].frame = *frame;
   parser->records[parser->head].rx_tick_ms = rx_tick_ms;
-  parser->head = next;
+  parser->last_rx_tick_ms = rx_tick_ms;
+  parser->head = (uint16_t)((parser->head + 1U) % PTGL_PARSER_QUEUE_CAPACITY);
 }
 
 static void decode_frame(const uint8_t raw[PTGL_FRAME_LEN], ptgl_frame_t *frame)
@@ -39,21 +40,21 @@ static void decode_frame(const uint8_t raw[PTGL_FRAME_LEN], ptgl_frame_t *frame)
 static void consume(ptgl_parser_t *parser, uint32_t rx_tick_ms)
 {
   for (;;) {
-    if (parser->count == 0U) {
+    if (parser->fill == 0U) {
       return;
     }
     if (parser->buf[0] != PTGL_HEADER0) {
       shift_one(parser);
       continue;
     }
-    if (parser->count < 2U) {
+    if (parser->fill < 2U) {
       return;
     }
     if (parser->buf[1] != PTGL_HEADER1) {
       shift_one(parser);
       continue;
     }
-    if (parser->count < PTGL_FRAME_LEN) {
+    if (parser->fill < PTGL_FRAME_LEN) {
       return;
     }
     if (parser->buf[PTGL_FRAME_LEN - 1U] != ptgl_checksum_reply(parser->buf)) {
@@ -63,7 +64,7 @@ static void consume(ptgl_parser_t *parser, uint32_t rx_tick_ms)
     }
     if (!ptgl_func_known(parser->buf[2])) {
       parser->func_err++;
-      parser->count = 0U;
+      parser->fill = 0U;
       return;
     }
 
@@ -72,7 +73,7 @@ static void consume(ptgl_parser_t *parser, uint32_t rx_tick_ms)
     decode_frame(parser->buf, &frame);
     parser->frames_ok++;
     enqueue(parser, &frame, rx_tick_ms);
-    parser->count = 0U;
+    parser->fill = 0U;
     return;
   }
 }
@@ -86,11 +87,11 @@ void ptgl_parser_feed(ptgl_parser_t *parser, const uint8_t *data, size_t len,
                       uint32_t rx_tick_ms)
 {
   for (size_t i = 0U; i < len; i++) {
-    if (parser->count == PTGL_FRAME_LEN) {
+    if (parser->fill == PTGL_FRAME_LEN) {
       shift_one(parser);
     }
-    parser->buf[parser->count] = data[i];
-    parser->count++;
+    parser->buf[parser->fill] = data[i];
+    parser->fill++;
     consume(parser, rx_tick_ms);
   }
 }
@@ -98,7 +99,7 @@ void ptgl_parser_feed(ptgl_parser_t *parser, const uint8_t *data, size_t len,
 bool ptgl_parser_pop(ptgl_parser_t *parser, ptgl_frame_t *frame,
                      uint32_t *rx_tick_ms)
 {
-  if (parser->tail == parser->head) {
+  if (parser->used == 0U) {
     return false;
   }
 
@@ -106,6 +107,7 @@ bool ptgl_parser_pop(ptgl_parser_t *parser, ptgl_frame_t *frame,
   if (rx_tick_ms != NULL) {
     *rx_tick_ms = parser->records[parser->tail].rx_tick_ms;
   }
-  parser->tail = (uint16_t)((parser->tail + 1U) % PTGL_PARSER_QUEUE_LEN);
+  parser->tail = (uint16_t)((parser->tail + 1U) % PTGL_PARSER_QUEUE_CAPACITY);
+  parser->used--;
   return true;
 }

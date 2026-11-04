@@ -19,18 +19,20 @@ static void on_rx(const uint8_t *data, size_t len)
   ptgl_parser_feed(&parser, data, len, port_time_ms());
 }
 
-static uint32_t parser_frames_ok(void)
+static void parser_status(uint32_t *frames, uint32_t *last_rx_tick_ms)
 {
   uint32_t critical_state = port_critical_enter();
-  uint32_t frames = parser.frames_ok;
 
+  *frames = parser.frames_ok;
+  if (last_rx_tick_ms != NULL) {
+    *last_rx_tick_ms = parser.last_rx_tick_ms;
+  }
   port_critical_exit(critical_state);
-  return frames;
 }
 
 static void send_stream_command(uint32_t now_ms)
 {
-  response_baseline = parser_frames_ok();
+  parser_status(&response_baseline, NULL);
   (void)ptgl_sensor_send_cmd(PTGL_FUNC_STREAM);
   state_tick_ms = now_ms;
 }
@@ -40,7 +42,7 @@ bool ptgl_sensor_init(void)
   uint32_t now_ms;
 
   ptgl_parser_init(&parser);
-  session_state = PTGL_SENSOR_STATE_FAULT;
+  session_state = PTGL_SENSOR_STATE_LINK_DOWN;
   state_tick_ms = port_time_ms();
   response_baseline = 0U;
   frames_seen = 0U;
@@ -56,7 +58,7 @@ bool ptgl_sensor_init(void)
   now_ms = port_time_ms();
   state_tick_ms = now_ms;
   last_frame_tick_ms = now_ms;
-  session_state = PTGL_SENSOR_STATE_WAITING;
+  session_state = PTGL_SENSOR_STATE_STARTING;
   return true;
 }
 
@@ -64,47 +66,47 @@ void ptgl_sensor_poll(uint32_t now_ms)
 {
   uint32_t elapsed_ms;
   uint32_t frames;
+  uint32_t last_rx_tick_ms;
 
   if (!uart_ready) {
     return;
   }
 
-  frames = parser_frames_ok();
+  parser_status(&frames, &last_rx_tick_ms);
   if (frames != frames_seen) {
     frames_seen = frames;
-    last_frame_tick_ms = now_ms;
+    last_frame_tick_ms = last_rx_tick_ms;
   }
 
   elapsed_ms = now_ms - state_tick_ms;
   switch (session_state) {
-    case PTGL_SENSOR_STATE_WAITING:
+    case PTGL_SENSOR_STATE_STARTING:
       if (elapsed_ms >= PTGL_SENSOR_EN_WAKE_DELAY_MS) {
         send_stream_command(now_ms);
-        session_state = PTGL_SENSOR_STATE_ACQUIRING;
+        session_state = PTGL_SENSOR_STATE_LINK_DOWN;
       }
       break;
 
-    case PTGL_SENSOR_STATE_ACQUIRING:
+    case PTGL_SENSOR_STATE_LINK_DOWN:
       if (frames_seen != response_baseline) {
-        session_state = PTGL_SENSOR_STATE_RUNNING;
+        session_state = PTGL_SENSOR_STATE_LINK_UP;
       } else if (elapsed_ms >= PTGL_SENSOR_RETRY_MS) {
         send_stream_command(now_ms);
       }
       break;
 
-    case PTGL_SENSOR_STATE_RUNNING:
-      if ((now_ms - last_frame_tick_ms) >= PTGL_SENSOR_LINK_TIMEOUT_MS) {
-        send_stream_command(now_ms);
-        session_state = PTGL_SENSOR_STATE_ACQUIRING;
-      }
-      break;
-
-    case PTGL_SENSOR_STATE_FAULT:
+    case PTGL_SENSOR_STATE_LINK_UP:
       break;
 
     default:
-      session_state = PTGL_SENSOR_STATE_FAULT;
+      session_state = PTGL_SENSOR_STATE_LINK_DOWN;
       break;
+  }
+
+  if (session_state == PTGL_SENSOR_STATE_LINK_UP &&
+      (now_ms - last_frame_tick_ms) >= PTGL_SENSOR_LINK_TIMEOUT_MS) {
+    send_stream_command(now_ms);
+    session_state = PTGL_SENSOR_STATE_LINK_DOWN;
   }
 }
 

@@ -22,6 +22,13 @@ static uint32_t adjusted_trigger_height_mm(uint32_t base_height_mm, int32_t gain
   return (uint32_t)height_mm;
 }
 
+static void reset_rate_tracking(flight_core_t *core)
+{
+  core->have_rate_anchor = false;
+  core->rate_valid = false;
+  core->descent_rate_mm_s = 0;
+}
+
 static void update_rate(flight_core_t *core, uint32_t now_ms, uint32_t height_mm)
 {
   uint32_t elapsed_ms;
@@ -98,7 +105,7 @@ static void update_arming(flight_core_t *core, uint32_t now_ms)
   if (core->arm_total_frames >= FLIGHT_ARM_MIN_FRAMES &&
       (uint64_t)core->arm_valid_frames * 100U >=
           (uint64_t)core->arm_total_frames * FLIGHT_ARM_VALID_RATIO_PERCENT &&
-      (now_ms - core->last_valid_tick_ms) <= FLIGHT_ARM_FRESH_MS &&
+      (now_ms - core->last_valid_tick_ms) <= FLIGHT_INPUT_MAX_AGE_MS &&
       core->arm_height_count > 0U &&
       core->arm_height_sum_mm >=
           (uint64_t)FLIGHT_ARM_MIN_HEIGHT_MM * core->arm_height_count) {
@@ -149,16 +156,19 @@ static flight_alert_t evaluate_alert(flight_core_t *core)
 }
 
 static void fill_output(const flight_core_t *core, flight_state_t state,
-                        flight_alert_t alert, flight_output_t *output)
+                        flight_reason_t reason, flight_alert_t alert,
+                        flight_output_t *output)
 {
-  bool data_valid = (state == FLIGHT_STATE_WARMUP) || (state == FLIGHT_STATE_TRACKING);
+  bool data_valid = ((state == FLIGHT_STATE_WARMUP) || (state == FLIGHT_STATE_ACTIVE)) &&
+                    core->have_frame && core->last_measurement_valid;
 
   output->state = state;
+  output->reason = reason;
   output->alert = alert;
   output->height_mm = core->height_mm;
   output->descent_rate_mm_s = core->descent_rate_mm_s;
   output->height_valid = data_valid;
-  output->rate_valid = data_valid && core->rate_valid;
+  output->rate_valid = (state == FLIGHT_STATE_ACTIVE) && core->rate_valid;
   output->armed = core->armed;
   output->alert1_trigger_height_mm = 0U;
   output->alert2_trigger_height_mm = 0U;
@@ -191,18 +201,6 @@ bool flight_core_init(flight_core_t *core, const flight_params_t *params, uint32
   return true;
 }
 
-bool flight_core_set_params(flight_core_t *core, const flight_params_t *params)
-{
-  if (core == NULL || !flight_params_valid(params)) {
-    return false;
-  }
-
-  core->params = *params;
-  core->alert1_active = false;
-  core->alert2_active = false;
-  return true;
-}
-
 void flight_core_set_sensor_running(flight_core_t *core, bool running, uint32_t now_ms)
 {
   if (core == NULL) {
@@ -228,47 +226,62 @@ void flight_core_set_sensor_running(flight_core_t *core, bool running, uint32_t 
 
 void flight_core_tick(flight_core_t *core, uint32_t now_ms, flight_output_t *output)
 {
-  uint32_t link_elapsed_ms;
-  uint32_t invalid_elapsed_ms;
-  bool link_fault;
-  bool invalid_fault;
+  uint32_t frame_age_ms;
+  uint32_t invalid_age_ms;
+  bool stale;
+  bool invalid_persistent;
   flight_state_t state;
+  flight_reason_t reason = FLIGHT_REASON_NONE;
   flight_alert_t alert = FLIGHT_ALERT_UNAVAILABLE;
 
   if (core == NULL || output == NULL) {
     return;
   }
 
-  update_arming(core, now_ms);
+  frame_age_ms = now_ms - core->last_frame_tick_ms;
+  invalid_age_ms = now_ms - core->last_valid_tick_ms;
+  stale = core->have_frame && frame_age_ms > FLIGHT_INPUT_MAX_AGE_MS;
+  invalid_persistent = core->have_frame && !core->last_measurement_valid &&
+                       invalid_age_ms >= FLIGHT_INVALID_GRACE_MS;
 
-  link_elapsed_ms = now_ms - core->last_frame_tick_ms;
-  invalid_elapsed_ms = now_ms - core->last_valid_tick_ms;
-  link_fault = link_elapsed_ms >= FLIGHT_LINK_TIMEOUT_MS;
-  invalid_fault = core->have_frame && !core->last_measurement_valid &&
-                  invalid_elapsed_ms >= FLIGHT_INVALID_GRACE_MS;
-
-  if (link_fault) {
-    state = FLIGHT_STATE_LINK_FAULT;
-  } else if (invalid_fault) {
-    state = FLIGHT_STATE_SENSOR_FAULT;
-  } else if (!core->have_frame) {
-    state = FLIGHT_STATE_INIT;
+  if (!core->have_frame) {
+    if (frame_age_ms >= FLIGHT_LINK_TIMEOUT_MS) {
+      state = FLIGHT_STATE_UNAVAILABLE;
+      reason = FLIGHT_REASON_LINK_TIMEOUT;
+    } else {
+      state = FLIGHT_STATE_WARMUP;
+    }
+  } else if (stale) {
+    reset_rate_tracking(core);
+    if (!core->armed) {
+      reset_arm_window(core);
+    }
+    state = FLIGHT_STATE_UNAVAILABLE;
+    reason = (frame_age_ms >= FLIGHT_LINK_TIMEOUT_MS) ? FLIGHT_REASON_LINK_TIMEOUT
+                                                      : FLIGHT_REASON_STALE_INPUT;
   } else if (!core->last_measurement_valid) {
-    state = FLIGHT_STATE_DEGRADED;
-  } else if (!core->rate_valid) {
-    state = FLIGHT_STATE_WARMUP;
+    reset_rate_tracking(core);
+    state = FLIGHT_STATE_UNAVAILABLE;
+    reason = invalid_persistent ? FLIGHT_REASON_MEASUREMENT_INVALID_PERSISTENT
+                                : FLIGHT_REASON_MEASUREMENT_INVALID;
   } else {
-    state = FLIGHT_STATE_TRACKING;
-    if (core->armed) {
-      alert = evaluate_alert(core);
+    update_arming(core, now_ms);
+    if (!core->rate_valid) {
+      state = FLIGHT_STATE_WARMUP;
+    } else {
+      state = FLIGHT_STATE_ACTIVE;
+      if (core->armed) {
+        alert = evaluate_alert(core);
+      }
     }
   }
 
-  fill_output(core, state, alert, output);
+  fill_output(core, state, reason, alert, output);
 }
 
-void flight_core_process(flight_core_t *core, uint32_t now_ms, uint32_t range_mm,
-                         bool has_distance, bool out_of_range, flight_output_t *output)
+void flight_core_process(flight_core_t *core, uint32_t now_ms, uint32_t frame_tick_ms,
+                         uint32_t range_mm, bool has_distance, bool out_of_range,
+                         flight_output_t *output)
 {
   bool measurement_valid;
   uint32_t height_mm = 0U;
@@ -277,12 +290,17 @@ void flight_core_process(flight_core_t *core, uint32_t now_ms, uint32_t range_mm
     return;
   }
 
+  if ((uint32_t)(now_ms - frame_tick_ms) > FLIGHT_INPUT_MAX_AGE_MS) {
+    flight_core_tick(core, now_ms, output);
+    return;
+  }
+
   measurement_valid = !out_of_range && has_distance &&
                       range_mm >= FLIGHT_DISTANCE_MIN_MM &&
                       range_mm <= FLIGHT_DISTANCE_MAX_MM;
 
   core->have_frame = true;
-  core->last_frame_tick_ms = now_ms;
+  core->last_frame_tick_ms = frame_tick_ms;
   core->last_measurement_valid = measurement_valid;
 
   if (!core->armed && core->sensor_running && core->arm_window_active) {
@@ -300,8 +318,8 @@ void flight_core_process(flight_core_t *core, uint32_t now_ms, uint32_t range_mm
       height_mm = flight_range_to_height_mm(range_mm);
     }
     core->height_mm = height_mm;
-    core->last_valid_tick_ms = now_ms;
-    update_rate(core, now_ms, core->height_mm);
+    core->last_valid_tick_ms = frame_tick_ms;
+    update_rate(core, frame_tick_ms, core->height_mm);
   }
 
   if (!out_of_range) {
@@ -311,16 +329,16 @@ void flight_core_process(flight_core_t *core, uint32_t now_ms, uint32_t range_mm
 
     if (!core->out_of_range_active) {
       core->out_of_range_active = true;
-      core->out_of_range_start_ms = now_ms;
+      core->out_of_range_start_ms = frame_tick_ms;
     } else {
-      gap_ms = now_ms - core->out_of_range_last_tick_ms;
+      gap_ms = frame_tick_ms - core->out_of_range_last_tick_ms;
       if (gap_ms > FLIGHT_LINK_TIMEOUT_MS) {
-        core->out_of_range_start_ms = now_ms;
+        core->out_of_range_start_ms = frame_tick_ms;
       }
     }
 
-    core->out_of_range_last_tick_ms = now_ms;
-    if ((now_ms - core->out_of_range_start_ms) >= FLIGHT_OUT_OF_RANGE_TIMEOUT_MS) {
+    core->out_of_range_last_tick_ms = frame_tick_ms;
+    if ((frame_tick_ms - core->out_of_range_start_ms) >= FLIGHT_OUT_OF_RANGE_TIMEOUT_MS) {
       core->armed = false;
       core->alert1_active = false;
       core->alert2_active = false;
