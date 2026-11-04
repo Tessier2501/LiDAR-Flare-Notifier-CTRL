@@ -71,8 +71,7 @@ void app_poll(void)
     if (!ptgl_func_measure(frame.func)) {
       continue;
     }
-    now_ms = port_time_ms();
-    flight_core_process(&flight_core, now_ms, t_ms, frame.distance_mm, frame.has_distance,
+    flight_core_process(&flight_core, t_ms, frame.distance_mm, frame.has_distance,
                         frame.sta != PTGL_STA_OK, &flight_output);
   }
 

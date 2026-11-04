@@ -14,7 +14,6 @@ typedef enum {
 
 typedef enum {
   FLIGHT_REASON_NONE = 0,
-  FLIGHT_REASON_STALE_INPUT,
   FLIGHT_REASON_LINK_TIMEOUT,
   FLIGHT_REASON_MEASUREMENT_INVALID,
   FLIGHT_REASON_MEASUREMENT_INVALID_PERSISTENT
@@ -70,8 +69,7 @@ typedef struct {
 bool flight_core_init(flight_core_t *core, const flight_params_t *params, uint32_t now_ms);
 void flight_core_set_sensor_running(flight_core_t *core, bool running, uint32_t now_ms);
 void flight_core_tick(flight_core_t *core, uint32_t now_ms, flight_output_t *output);
-void flight_core_process(flight_core_t *core, uint32_t now_ms, uint32_t frame_tick_ms,
-                         uint32_t range_mm, bool has_distance, bool out_of_range,
-                         flight_output_t *output);
+void flight_core_process(flight_core_t *core, uint32_t now_ms, uint32_t range_mm,
+                         bool has_distance, bool out_of_range, flight_output_t *output);
 
 #endif
