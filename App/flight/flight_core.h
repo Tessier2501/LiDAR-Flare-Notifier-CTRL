@@ -39,8 +39,8 @@ typedef struct {
   uint32_t arm_valid_frames;
   uint64_t arm_height_sum_mm;
   uint32_t arm_height_count;
-  uint32_t out_of_range_start_ms;
-  uint32_t out_of_range_last_tick_ms;
+  uint32_t invalid_start_ms;
+  uint32_t invalid_last_tick_ms;
   bool have_frame;
   bool last_measurement_valid;
   bool have_rate_anchor;
@@ -50,7 +50,7 @@ typedef struct {
   bool sensor_running;
   bool arm_window_active;
   bool armed;
-  bool out_of_range_active;
+  bool invalid_active;
 } flight_core_t;
 
 typedef struct {
@@ -70,6 +70,6 @@ bool flight_core_init(flight_core_t *core, const flight_params_t *params, uint32
 void flight_core_set_sensor_running(flight_core_t *core, bool running, uint32_t now_ms);
 void flight_core_tick(flight_core_t *core, uint32_t now_ms, flight_output_t *output);
 void flight_core_process(flight_core_t *core, uint32_t now_ms, uint32_t range_mm,
-                         bool has_distance, bool out_of_range, flight_output_t *output);
+                         bool measurement_valid, flight_output_t *output);
 
 #endif

@@ -8,7 +8,7 @@ static flight_core_t flight_core;
 static flight_output_t flight_output;
 static app_health_t health;
 static ptgl_sensor_state_t sensor_state;
-static bool flight_ready;
+static bool core_ready;
 
 static void update_health(void)
 {
@@ -30,7 +30,7 @@ void app_init(void)
   uint32_t now_ms = port_time_ms();
 
   health = APP_HEALTH_UNAVAILABLE;
-  flight_ready = false;
+  core_ready = false;
   flight_output = (flight_output_t){0};
   flight_output.state = FLIGHT_STATE_UNAVAILABLE;
   flight_output.alert = FLIGHT_ALERT_UNAVAILABLE;
@@ -40,12 +40,13 @@ void app_init(void)
     return;
   }
 
+  core_ready = true;
   if (!ptgl_sensor_init()) {
     sensor_state = PTGL_SENSOR_STATE_LINK_DOWN;
+    update_health();
     return;
   }
 
-  flight_ready = true;
   sensor_state = ptgl_sensor_state();
   flight_core_set_sensor_running(&flight_core, sensor_state == PTGL_SENSOR_STATE_LINK_UP, now_ms);
   flight_core_tick(&flight_core, now_ms, &flight_output);
@@ -58,7 +59,7 @@ void app_poll(void)
   uint32_t t_ms;
   uint32_t now_ms;
 
-  if (!flight_ready) {
+  if (!core_ready) {
     return;
   }
 
@@ -71,8 +72,8 @@ void app_poll(void)
     if (!ptgl_func_measure(frame.func)) {
       continue;
     }
-    flight_core_process(&flight_core, t_ms, frame.distance_mm, frame.has_distance,
-                        frame.sta != PTGL_STA_OK, &flight_output);
+    flight_core_process(&flight_core, t_ms, frame.distance_mm,
+                        frame.sta == PTGL_STA_OK, &flight_output);
   }
 
   flight_core_tick(&flight_core, port_time_ms(), &flight_output);

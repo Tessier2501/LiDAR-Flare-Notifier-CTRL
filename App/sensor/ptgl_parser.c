@@ -29,11 +29,9 @@ static void decode_frame(const uint8_t raw[PTGL_FRAME_LEN], ptgl_frame_t *frame)
   frame->func = raw[2];
   frame->sta = raw[3];
   frame->distance_mm = 0U;
-  frame->has_distance = false;
 
   if (ptgl_func_measure(frame->func) && frame->sta == PTGL_STA_OK) {
     frame->distance_mm = ((uint32_t)raw[4] << 16) | ((uint32_t)raw[5] << 8) | raw[6];
-    frame->has_distance = true;
   }
 }
 
@@ -58,7 +56,7 @@ static void consume(ptgl_parser_t *parser, uint32_t rx_tick_ms)
       return;
     }
     if (parser->buf[PTGL_FRAME_LEN - 1U] != ptgl_checksum_reply(parser->buf)) {
-      parser->crc_err++;
+      parser->checksum_err++;
       shift_one(parser);
       continue;
     }
@@ -81,6 +79,11 @@ static void consume(ptgl_parser_t *parser, uint32_t rx_tick_ms)
 void ptgl_parser_init(ptgl_parser_t *parser)
 {
   memset(parser, 0, sizeof(*parser));
+}
+
+void ptgl_parser_reset_stream(ptgl_parser_t *parser)
+{
+  parser->fill = 0U;
 }
 
 void ptgl_parser_feed(ptgl_parser_t *parser, const uint8_t *data, size_t len,

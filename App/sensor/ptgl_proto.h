@@ -19,7 +19,6 @@ typedef struct {
   uint8_t  func;
   uint8_t  sta;
   uint32_t distance_mm;
-  bool     has_distance;
 } ptgl_frame_t;
 
 static inline uint8_t ptgl_checksum_reply(const uint8_t frame[PTGL_FRAME_LEN])

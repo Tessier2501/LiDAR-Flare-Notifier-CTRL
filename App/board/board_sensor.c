@@ -10,6 +10,7 @@
 static uint8_t rx_buf[SENSOR_RX_BUF_LEN];
 static port_sensor_rx_fn rx_handler;
 static uint16_t rx_last_pos;
+static bool rx_active;
 
 static uint16_t rx_position(void)
 {
@@ -37,8 +38,14 @@ static void deliver(void)
 
 static bool start_receive(void)
 {
+  rx_active = false;
+  if (HAL_UARTEx_ReceiveToIdle_DMA(&huart2, rx_buf, SENSOR_RX_BUF_LEN) != HAL_OK) {
+    return false;
+  }
+
   rx_last_pos = 0U;
-  return HAL_UARTEx_ReceiveToIdle_DMA(&huart2, rx_buf, SENSOR_RX_BUF_LEN) == HAL_OK;
+  rx_active = true;
+  return true;
 }
 
 bool port_sensor_start(port_sensor_rx_fn rx)
@@ -49,6 +56,11 @@ bool port_sensor_start(port_sensor_rx_fn rx)
 
   rx_handler = rx;
   return start_receive();
+}
+
+bool port_sensor_rx_ready(void)
+{
+  return rx_active;
 }
 
 void port_sensor_enable(bool enable)
@@ -71,7 +83,7 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t size)
 {
   UNUSED(size);
 
-  if ((huart->Instance != USART2) || (rx_handler == NULL)) {
+  if ((huart->Instance != USART2) || (rx_handler == NULL) || !rx_active) {
     return;
   }
 
@@ -85,6 +97,8 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
   }
 
   if (huart->RxState != HAL_UART_STATE_BUSY_RX) {
-    (void)start_receive();
+    if (!start_receive()) {
+      rx_active = false;
+    }
   }
 }

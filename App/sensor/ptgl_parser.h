@@ -16,7 +16,7 @@ typedef struct {
 typedef struct {
   ptgl_frame_record_t records[PTGL_PARSER_QUEUE_CAPACITY];
   uint32_t     frames_ok;
-  uint32_t     crc_err;
+  uint32_t     checksum_err;
   uint32_t     func_err;
   uint32_t     overflow;
   uint32_t     last_rx_tick_ms;
@@ -28,6 +28,7 @@ typedef struct {
 } ptgl_parser_t;
 
 void ptgl_parser_init(ptgl_parser_t *parser);
+void ptgl_parser_reset_stream(ptgl_parser_t *parser);
 void ptgl_parser_feed(ptgl_parser_t *parser, const uint8_t *data, size_t len,
                       uint32_t rx_tick_ms);
 bool ptgl_parser_pop(ptgl_parser_t *parser, ptgl_frame_t *frame,
