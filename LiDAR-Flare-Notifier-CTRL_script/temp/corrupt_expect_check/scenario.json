@@ -1,0 +1,11 @@
+{
+  "duration_s": 1.0,
+  "frame_rate_hz": 100.0,
+  "initial_range_m": 10.0,
+  "initial_velocity_mps": 2.0,
+  "install_angle_deg": 10.0,
+  "motion": {"type": "velocity", "points": [[0.0, 2.0], [1.0, 2.0]]},
+  "attitude": {"points": [[0.0, 0.0], [1.0, 0.0]]},
+  "noise_mm": 0.0,
+  "fault_injection": {"corrupt_rate": 0.2, "fail_rate": 0.0, "drop_rate": 0.0}
+}

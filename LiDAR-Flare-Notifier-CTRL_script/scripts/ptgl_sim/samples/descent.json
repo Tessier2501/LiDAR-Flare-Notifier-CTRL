@@ -1,0 +1,31 @@
+{
+  "duration_s": 16.65,
+  "frame_rate_hz": 100.0,
+  "initial_height_m": 98.0,
+  "initial_velocity_mps": 6.0,
+  "install_angle_deg": 10.0,
+  "motion": {
+    "type": "velocity",
+    "points": [[0.0, 6.0], [15.6667, 6.0], [16.65, 0.3]]
+  },
+  "attitude": {
+    "points": [[0.0, 6.0], [2.0, 3.0], [4.0, 5.0], [6.0, 1.0], [8.0, 0.0], [15.5, 0.0], [16.2, 8.0], [16.65, 12.0]]
+  },
+  "limits": {
+    "min_range_mm": 200,
+    "max_range_mm": 100000,
+    "out_of_range": "fail"
+  },
+  "range_error": {
+    "noise_mm": 4.0,
+    "bias_mm": 0.0,
+    "scale_ppm": 0.0
+  },
+  "fault_injection": {
+    "fail_rate": 0.005,
+    "corrupt_rate": 0.0,
+    "drop_rate": 0.002,
+    "freeze_frames": 0,
+    "freeze_every_frames": 0
+  }
+}
